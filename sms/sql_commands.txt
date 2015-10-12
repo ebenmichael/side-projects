@@ -1,0 +1,13 @@
+-convert date
+select date(datetime(date + strftime('%s','2001-01-01'),'unixepoch','localtime')) from message;
+-get the phone numbers
+select m.text, h.id from message as m
+join handle h
+on m.handle_id = h.ROWID;
+
+
+-create a cleaned up message table
+create table clean_message as
+select date(datetime(m.date + strftime('%s','2001-01-01'),'unixepoch','localtime')),h.id,m.text,m.is_from_me from message m
+join handle h on m.handle_id = h.ROWID;
+
