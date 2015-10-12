@@ -14,6 +14,14 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from sklearn import feature_extraction
 from sklearn import preprocessing
+from sklearn import metrics
+import numpy as np
+from gensim import matutils,models
+from textblob import TextBlob
+
+
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def get_dept_queries():
     """Gets the list of departments to query the CULPA API with"""
@@ -128,7 +136,8 @@ def get_prof_reviews(profs):
     for i,prof in enumerate(profs):
         #get id
         prof_id = prof["id"]
-        print(i,prof_id)
+        if i % 100 == 0:
+            print(i,prof_id)
         #get reviews
         out = extract_combine(prof_id)
         #if no output, then we didn't get review text for some reason
@@ -169,6 +178,48 @@ def num_agree(review_id):
     
     return(num_agree,num_disagree,num_funny)
 
+def num_agree_stats(prof_id):
+    """Get the statistics on the number of people who agree/disagree with
+        reviews for a professor
+    Input:
+        prof_d:id number of professor
+    Output:
+        m_pct_agree: mean percent that agree
+        v_pct_agree: varaiance in percent that agree
+        m_pct_disagree: mean percent that disagree
+        v_pct_disagree: variance in percent that disagree
+        m_pct_funny: mean percent find funny
+        v_pct_funny: variance in percent find funny
+    """
+    
+    #get all of the review ids for the professor
+    ids = extract_review(prof_id)
+    #iterate over review ids to get num_agree etc.
+    agree = []
+    disagree = []
+    funny  = []
+    for review_id in ids.keys():
+        #get the number that agree etc.
+        output = num_agree(review_id)
+        #normalize to get percentages
+        total = sum(output)
+        pct = [agree / total for agree in output]
+        #add to agree data
+        agree.append(pct[0])
+        disagree.append(pct[1])
+        funny.append(pct[2])
+    #return summary stats
+    m_pct_agree = np.mean(agree)
+    v_pct_agree = np.var(agree)
+    m_pct_disagree = np.mean(disagree)
+    v_pct_disagree = np.var(disagree)
+    m_pct_funny = np.mean(funny)
+    v_pct_funny = np.var(funny)
+    
+    #return(m_pct_agree,v_pct_agree,m_pct_disagree,v_pct_disagree,m_pct_funny,
+    #       v_pct_funny)
+    return(agree,disagree,funny)
+        
 
 def to_data_frame(profs):
     """Converts to dataframe"""
@@ -207,3 +258,65 @@ def encode_classes(target):
     le.fit(target)
     target = le.transform(target)
     return(target)
+    
+def train_lda(text_mat,vocab,num_topics = 10):
+    """trains a LDA model and then gets topic vectors
+    Input:
+        text_mat: matrix of corpus as bag of words
+        vocab: dictionary with words as keys and ids as values
+    Output:
+        top_mat: matrix of topic vectors
+    """
+    
+    #make a corpus object
+    corpus = matutils.Scipy2Corpus(text_mat)
+    #make id2word dict
+    id2word = {key:word for word,key in vocab.items()}
+    #train lda
+    lda = models.LdaModel(corpus,num_topics=num_topics)
+    lda.id2word = id2word
+    #get topic vector matrix
+    top_mat = matutils.corpus2csc([lda[doc] for doc in corpus]).T
+    
+    return(top_mat)
+
+
+def get_sentiments(dat,col):
+    """Does sentiment analyis on each document
+    Input:
+        dat: dataframe with documents
+        col: column with documents
+    Output:
+        sentiment: 2d matrix with polrity and subjectivity for each doc
+    """
+    #initialize sentiment
+    sentiment = np.zeros((dat.shape[0],2))
+    
+    for i,doc in enumerate(dat[col]):
+        if i % 500 == 0:
+            print(i)
+        blob = TextBlob(doc)
+        sentiment[i,0] = blob.sentiment.polarity
+        sentiment[i,1] = blob.sentiment.subjectivity
+        
+    return(sentiment)
+    
+    
+def plotROC(yTrue,probPred):
+    """Plots the ROC Curve given the true values and predicted probabilities
+    Input:
+        yTrue: true labels
+        probPred: predicted probability
+    """
+    
+    #get fpr and tpr and auc score
+    fpr,tpr,thresholds = metrics.roc_curve(yTrue,probPred,pos_label=1)
+    
+    score = metrics.roc_auc_score(yTrue,probPred)
+    
+    #plot
+    
+    plt.plot(fpr,tpr)
+    plt.title("ROC Curve AUC = %0.3f" %score)
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
